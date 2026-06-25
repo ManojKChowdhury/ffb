@@ -55,16 +55,6 @@ export async function simulationRoutes(fastify: FastifyInstance) {
 
       const match = matchRes.rows[0];
 
-      // Determine actual outcome
-      let actualOutcome: 'HOME_WIN' | 'AWAY_WIN' | 'DRAW';
-      if (homeScore > awayScore) {
-        actualOutcome = 'HOME_WIN';
-      } else if (awayScore > homeScore) {
-        actualOutcome = 'AWAY_WIN';
-      } else {
-        actualOutcome = 'DRAW';
-      }
-
       // Start transaction to execute scoring atomically
       await query('BEGIN');
 
@@ -84,7 +74,7 @@ export async function simulationRoutes(fastify: FastifyInstance) {
 
       // 3. Score each prediction
       for (const pred of predsRes.rows) {
-        const isCorrect = pred.predicted_outcome === actualOutcome;
+        const isCorrect = pred.predicted_home_score === homeScore && pred.predicted_away_score === awayScore;
         
         if (isCorrect) {
           await query(
@@ -106,7 +96,6 @@ export async function simulationRoutes(fastify: FastifyInstance) {
       return reply.send({
         success: true,
         message: 'Match resolved and scored successfully.',
-        actualOutcome,
         totalPredictionsProcessed: predsRes.rows.length,
         correctPredictions: correctPredictionsCount
       });

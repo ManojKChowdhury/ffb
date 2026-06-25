@@ -6,6 +6,7 @@ import { Link, useParams } from '@tanstack/react-router';
 export function Results() {
   const { eventId } = useParams({ from: '/matches/$eventId' });
   const token = localStorage.getItem('token');
+  const [isSyncing, setIsSyncing] = React.useState(false);
 
   // Fetch matches from Fastify backend
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
@@ -20,6 +21,26 @@ export function Results() {
       return res.json();
     }
   });
+
+  const handleRefresh = async () => {
+    setIsSyncing(true);
+    try {
+      const res = await fetch('http://localhost:3001/api/sync-matches', {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${token}`
+        }
+      });
+      if (!res.ok) {
+        console.warn('Sync API endpoint returned error status:', res.status);
+      }
+    } catch (err) {
+      console.error('Failed to sync matches:', err);
+    } finally {
+      setIsSyncing(false);
+      refetch();
+    }
+  };
 
   const matches = data?.matches || [];
 
@@ -41,12 +62,12 @@ export function Results() {
         </div>
 
         <button
-          onClick={() => refetch()}
-          disabled={isLoading || isRefetching}
+          onClick={handleRefresh}
+          disabled={isLoading || isRefetching || isSyncing}
           className="inline-flex items-center space-x-2 px-4 py-2 bg-slate-900 border border-slate-800 hover:border-slate-700 text-slate-300 hover:text-white rounded-xl text-sm font-semibold transition cursor-pointer disabled:opacity-50"
         >
-          <RefreshCw size={14} className={isRefetching ? 'animate-spin' : ''} />
-          <span>{isRefetching ? 'Refreshing...' : 'Refresh Scores'}</span>
+          <RefreshCw size={14} className={isRefetching || isSyncing ? 'animate-spin' : ''} />
+          <span>{isSyncing ? 'Syncing...' : isRefetching ? 'Refreshing...' : 'Refresh Scores'}</span>
         </button>
       </div>
 

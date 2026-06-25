@@ -31,7 +31,8 @@ let mockPredictions: Array<{
   id: string;
   user_id: string;
   match_id: string;
-  predicted_outcome: string;
+  predicted_home_score: number;
+  predicted_away_score: number;
   is_processed: boolean;
 }> = [];
 
@@ -188,17 +189,21 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
   if (normalizedSql.includes('INSERT INTO predictions') && normalizedSql.includes('ON CONFLICT')) {
     const userId = params[0];
     const matchId = params[1];
-    const outcome = params[2];
+    const homeScore = params[2];
+    const awayScore = params[3];
 
     const idx = mockPredictions.findIndex(p => p.user_id === userId && p.match_id === matchId);
     if (idx >= 0) {
-      mockPredictions[idx].predicted_outcome = outcome;
+      mockPredictions[idx].predicted_home_score = homeScore;
+      mockPredictions[idx].predicted_away_score = awayScore;
+      mockPredictions[idx].is_processed = false;
     } else {
       mockPredictions.push({
         id: crypto.randomUUID(),
         user_id: userId,
         match_id: matchId,
-        predicted_outcome: outcome,
+        predicted_home_score: homeScore,
+        predicted_away_score: awayScore,
         is_processed: false
       });
     }
@@ -206,7 +211,7 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
   }
 
   // 10. GET my predictions
-  if (normalizedSql.startsWith('SELECT match_id, predicted_outcome, is_processed FROM predictions WHERE user_id =')) {
+  if (normalizedSql.startsWith('SELECT match_id, predicted_home_score, predicted_away_score, is_processed FROM predictions WHERE user_id =')) {
     const userId = params[0];
     const results = mockPredictions.filter(p => p.user_id === userId);
     return { rows: results };
@@ -247,6 +252,37 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
       mockMatches[idx].home_score = homeScore;
       mockMatches[idx].away_score = awayScore;
       mockMatches[idx].status = 'COMPLETED';
+    }
+    return { rows: [] };
+  }
+
+  // 13a. Mock insert match
+  if (normalizedSql.startsWith('INSERT INTO matches')) {
+    const [id, event_id, home_team, away_team, kickoff_time, home_score, away_score, status] = params;
+    mockMatches.push({
+      id,
+      event_id,
+      home_team,
+      away_team,
+      kickoff_time,
+      home_score: home_score !== undefined ? home_score : null,
+      away_score: away_score !== undefined ? away_score : null,
+      status: status || 'SCHEDULED'
+    });
+    return { rows: [] };
+  }
+
+  // 13b. Mock update match full
+  if (normalizedSql.startsWith('UPDATE matches SET home_team =')) {
+    const [home_team, away_team, kickoff_time, home_score, away_score, status, id] = params;
+    const idx = mockMatches.findIndex(m => m.id === id);
+    if (idx >= 0) {
+      mockMatches[idx].home_team = home_team;
+      mockMatches[idx].away_team = away_team;
+      mockMatches[idx].kickoff_time = kickoff_time;
+      mockMatches[idx].home_score = home_score !== undefined ? home_score : null;
+      mockMatches[idx].away_score = away_score !== undefined ? away_score : null;
+      mockMatches[idx].status = status;
     }
     return { rows: [] };
   }
@@ -344,10 +380,23 @@ export async function initDb() {
           id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
           user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
           match_id VARCHAR(255) NOT NULL REFERENCES matches(id) ON DELETE CASCADE,
-          predicted_outcome VARCHAR(50) NOT NULL,
+          predicted_outcome VARCHAR(50),
+          predicted_home_score INT,
+          predicted_away_score INT,
           is_processed BOOLEAN DEFAULT false NOT NULL,
           CONSTRAINT unique_user_match UNIQUE (user_id, match_id)
         );
+      `);
+
+      // Database migration logic for existing tables
+      await conn.query(`
+        ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_home_score INT;
+      `);
+      await conn.query(`
+        ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_away_score INT;
+      `);
+      await conn.query(`
+        ALTER TABLE predictions ALTER COLUMN predicted_outcome DROP NOT NULL;
       `);
       await conn.query(`
         CREATE INDEX IF NOT EXISTS idx_predictions_user_id ON predictions (user_id);
@@ -356,25 +405,35 @@ export async function initDb() {
         CREATE INDEX IF NOT EXISTS idx_predictions_match_id ON predictions (match_id);
       `);
 
-      // Seed
-      const now = new Date();
-      const addHours = (d: Date, h: number) => { const x = new Date(d); x.setHours(x.getHours() + h); return x; };
-      const addMinutes = (d: Date, m: number) => { const x = new Date(d); x.setMinutes(x.getMinutes() + m); return x; };
+      // Try to sync World Cup 2026 fixtures from the API dynamically on startup
+      try {
+        console.log('Attempting to sync World Cup 2026 matches from worldcup26.ir API...');
+        const { syncWorldCupMatches } = await import('./sync');
+        await syncWorldCupMatches();
+        console.log('Successfully synced real World Cup 2026 matches from API.');
+      } catch (syncErr) {
+        console.warn('Failed to sync matches from API on startup, seeding fallback mock matches data...', syncErr);
+        
+        // Seed mock matches as fallback
+        const now = new Date();
+        const addHours = (d: Date, h: number) => { const x = new Date(d); x.setHours(x.getHours() + h); return x; };
+        const addMinutes = (d: Date, m: number) => { const x = new Date(d); x.setMinutes(x.getMinutes() + m); return x; };
 
-      const mockMatchesData = [
-        { id: 'match_1', event_id: 'wc2026', home_team: 'USA', away_team: 'England', kickoff_time: addHours(now, 2).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
-        { id: 'match_2', event_id: 'wc2026', home_team: 'Argentina', away_team: 'France', kickoff_time: addHours(now, 5).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
-        { id: 'match_3', event_id: 'wc2026', home_team: 'Brazil', away_team: 'Germany', kickoff_time: addHours(now, -3).toISOString(), home_score: 2, away_score: 1, status: 'COMPLETED' },
-        { id: 'match_4', event_id: 'wc2026', home_team: 'Spain', away_team: 'Italy', kickoff_time: addMinutes(now, 15).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
-        { id: 'match_5', event_id: 'wc2026', home_team: 'Mexico', away_team: 'Canada', kickoff_time: addHours(now, 24).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' }
-      ];
+        const mockMatchesData = [
+          { id: 'match_1', event_id: 'wc2026', home_team: 'USA', away_team: 'England', kickoff_time: addHours(now, 2).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
+          { id: 'match_2', event_id: 'wc2026', home_team: 'Argentina', away_team: 'France', kickoff_time: addHours(now, 5).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
+          { id: 'match_3', event_id: 'wc2026', home_team: 'Brazil', away_team: 'Germany', kickoff_time: addHours(now, -3).toISOString(), home_score: 2, away_score: 1, status: 'COMPLETED' },
+          { id: 'match_4', event_id: 'wc2026', home_team: 'Spain', away_team: 'Italy', kickoff_time: addMinutes(now, 15).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' },
+          { id: 'match_5', event_id: 'wc2026', home_team: 'Mexico', away_team: 'Canada', kickoff_time: addHours(now, 24).toISOString(), home_score: null, away_score: null, status: 'SCHEDULED' }
+        ];
 
-      for (const m of mockMatchesData) {
-        await conn.query(`
-          INSERT INTO matches (id, event_id, home_team, away_team, kickoff_time, home_score, away_score, status)
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-          ON CONFLICT (id) DO NOTHING;
-        `, [m.id, m.event_id, m.home_team, m.away_team, m.kickoff_time, m.home_score, m.away_score, m.status]);
+        for (const m of mockMatchesData) {
+          await conn.query(`
+            INSERT INTO matches (id, event_id, home_team, away_team, kickoff_time, home_score, away_score, status)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (id) DO NOTHING;
+          `, [m.id, m.event_id, m.home_team, m.away_team, m.kickoff_time, m.home_score, m.away_score, m.status]);
+        }
       }
       console.log('Postgres database successfully initialized.');
     } finally {

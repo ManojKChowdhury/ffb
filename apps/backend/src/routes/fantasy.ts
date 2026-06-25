@@ -2,6 +2,7 @@ import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
 import { PredictionSubmissionSchema } from '@fantasy/shared';
 import { query } from '../db';
+import { syncWorldCupMatches } from '../sync';
 
 export async function fantasyRoutes(fastify: FastifyInstance) {
   const server = fastify.withTypeProvider<ZodTypeProvider>();
@@ -48,7 +49,11 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     }
   }, async (request, reply) => {
     const userJwt = request.user as { id: string; username: string };
-    const { matchId, predictedOutcome } = request.body;
+    const { matchId, predictedHomeScore, predictedAwayScore } = request.body as {
+      matchId: string;
+      predictedHomeScore: number;
+      predictedAwayScore: number;
+    };
 
     try {
       // Fetch match kickoff details to enforce lockout logic
@@ -71,11 +76,14 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
 
       // Upsert user prediction
       await query(`
-        INSERT INTO predictions (user_id, match_id, predicted_outcome)
-        VALUES ($1, $2, $3)
+        INSERT INTO predictions (user_id, match_id, predicted_home_score, predicted_away_score)
+        VALUES ($1, $2, $3, $4)
         ON CONFLICT (user_id, match_id) 
-        DO UPDATE SET predicted_outcome = EXCLUDED.predicted_outcome
-      `, [userJwt.id, matchId, predictedOutcome]);
+        DO UPDATE SET 
+          predicted_home_score = EXCLUDED.predicted_home_score,
+          predicted_away_score = EXCLUDED.predicted_away_score,
+          is_processed = false
+      `, [userJwt.id, matchId, predictedHomeScore, predictedAwayScore]);
 
       return reply.send({
         success: true,
@@ -94,7 +102,7 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     const userJwt = request.user as { id: string; username: string };
 
     try {
-      const res = await query('SELECT match_id, predicted_outcome, is_processed FROM predictions WHERE user_id = $1', [userJwt.id]);
+      const res = await query('SELECT match_id, predicted_home_score, predicted_away_score, is_processed FROM predictions WHERE user_id = $1', [userJwt.id]);
       return reply.send({ success: true, predictions: res.rows });
     } catch (err) {
       request.log.error(err);
@@ -113,6 +121,19 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     } catch (err) {
       request.log.error(err);
       return reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to query leaderboard' });
+    }
+  });
+
+  // 5. Trigger manual score and match sync
+  server.post('/sync-matches', {
+    onRequest: [(fastify as any).authenticate]
+  }, async (request, reply) => {
+    try {
+      const result = await syncWorldCupMatches();
+      return reply.send(result);
+    } catch (err) {
+      request.log.error(err);
+      return reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to synchronize matches from API' });
     }
   });
 }

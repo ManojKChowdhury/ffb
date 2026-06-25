@@ -11,6 +11,9 @@ export function Fantasy() {
   // Score states for each match resolve simulator
   const [resolveScores, setResolveScores] = useState<Record<string, { home: number; away: number }>>({});
 
+  // Local score prediction states that are not yet committed to backend
+  const [localPredictions, setLocalPredictions] = useState<Record<string, { home: string; away: string }>>({});
+
   // 1. Fetch matches
   const { data: matchesData, isLoading: matchesLoading } = useQuery({
     queryKey: ['matches', eventId],
@@ -39,18 +42,23 @@ export function Fantasy() {
   const matches = matchesData?.matches || [];
   const predictions = predictionsData?.predictions || [];
 
-  // Build predictions map: matchId -> predictedOutcome
+  // Build predictions map: matchId -> predicted scores
   const predictionsMap = React.useMemo(() => {
-    const map: Record<string, string> = {};
+    const map: Record<string, { homeScore: number; awayScore: number }> = {};
     predictions.forEach((pred: any) => {
-      map[pred.match_id] = pred.predicted_outcome;
+      if (pred.predicted_home_score !== undefined && pred.predicted_away_score !== undefined) {
+        map[pred.match_id] = {
+          homeScore: pred.predicted_home_score,
+          awayScore: pred.predicted_away_score
+        };
+      }
     });
     return map;
   }, [predictions]);
 
   // Mutation to submit prediction
   const submitPredictionMutation = useMutation({
-    mutationFn: async (payload: { matchId: string; predictedOutcome: 'HOME_WIN' | 'AWAY_WIN' | 'DRAW' }) => {
+    mutationFn: async (payload: { matchId: string; predictedHomeScore: number; predictedAwayScore: number }) => {
       const res = await fetch('http://localhost:3001/api/predictions', {
         method: 'POST',
         headers: {
@@ -138,8 +146,52 @@ export function Fantasy() {
     }
   });
 
-  const handlePredict = (matchId: string, outcome: 'HOME_WIN' | 'AWAY_WIN' | 'DRAW') => {
-    submitPredictionMutation.mutate({ matchId, predictedOutcome: outcome });
+  const getPredictedScores = (matchId: string) => {
+    if (localPredictions[matchId] !== undefined) {
+      return localPredictions[matchId];
+    }
+    const saved = predictionsMap[matchId];
+    if (saved) {
+      return { home: String(saved.homeScore), away: String(saved.awayScore) };
+    }
+    return { home: '', away: '' };
+  };
+
+  const handleLocalPredictionChange = (matchId: string, team: 'home' | 'away', value: string) => {
+    if (value !== '' && !/^\d+$/.test(value)) return;
+    const current = getPredictedScores(matchId);
+    setLocalPredictions(prev => ({
+      ...prev,
+      [matchId]: {
+        ...current,
+        [team]: value
+      }
+    }));
+  };
+
+  const isPredictionChanged = (matchId: string) => {
+    const local = localPredictions[matchId];
+    if (local === undefined) return false;
+    const saved = predictionsMap[matchId];
+    if (!saved) {
+      return local.home !== '' || local.away !== '';
+    }
+    return local.home !== String(saved.homeScore) || local.away !== String(saved.awayScore);
+  };
+
+  const handlePredict = (matchId: string) => {
+    const scores = getPredictedScores(matchId);
+    if (scores.home === '' || scores.away === '') {
+      alert('Please enter predicted scores for both teams.');
+      return;
+    }
+    const homeScore = parseInt(scores.home, 10);
+    const awayScore = parseInt(scores.away, 10);
+    submitPredictionMutation.mutate({
+      matchId,
+      predictedHomeScore: homeScore,
+      predictedAwayScore: awayScore
+    });
   };
 
   const handleResolveSubmit = (e: React.FormEvent, matchId: string) => {
@@ -269,50 +321,76 @@ export function Fantasy() {
 
                     {/* Predictions Choice Group */}
                     <div className="mt-4 pt-4 border-t border-slate-900">
-                      <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-2.5 text-center">
+                      <span className="block text-xs font-semibold text-slate-400 uppercase tracking-wider mb-3 text-center">
                         Your Prediction
                       </span>
-                      
-                      <div className="grid grid-cols-3 gap-3">
-                        {/* HOME WIN */}
-                        <button
-                          disabled={isLocked}
-                          onClick={() => handlePredict(match.id, 'HOME_WIN')}
-                          className={`py-2 px-3 rounded-xl font-bold text-xs transition border cursor-pointer ${
-                            userPrediction === 'HOME_WIN'
-                              ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10'
-                              : 'bg-slate-950 hover:bg-slate-900 border-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          {match.home_team} Win
-                        </button>
 
-                        {/* DRAW */}
-                        <button
-                          disabled={isLocked}
-                          onClick={() => handlePredict(match.id, 'DRAW')}
-                          className={`py-2 px-3 rounded-xl font-bold text-xs transition border cursor-pointer ${
-                            userPrediction === 'DRAW'
-                              ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10'
-                              : 'bg-slate-950 hover:bg-slate-900 border-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          Draw
-                        </button>
+                      {isLocked ? (
+                        <div className="flex justify-center items-center gap-4 bg-slate-950/50 py-3 px-4 rounded-xl border border-slate-900/60 max-w-sm mx-auto shadow-inner">
+                          <span className="text-xs font-semibold text-slate-400 truncate max-w-[120px] text-right flex-1">{match.home_team}</span>
+                          <span className="font-display font-extrabold text-base px-3 py-1 bg-slate-900 rounded border border-slate-800 text-slate-300">
+                            {userPrediction ? `${userPrediction.homeScore} - ${userPrediction.awayScore}` : 'No prediction'}
+                          </span>
+                          <span className="text-xs font-semibold text-slate-400 truncate max-w-[120px] text-left flex-1">{match.away_team}</span>
+                        </div>
+                      ) : (
+                        <div className="flex flex-col sm:flex-row items-center justify-center gap-4 max-w-md mx-auto">
+                          <div className="flex items-center gap-2 bg-slate-950/60 p-2 rounded-xl border border-slate-800/80 shadow-md">
+                            {/* Home score input */}
+                            <div className="flex items-center gap-2 px-2">
+                              <span className="text-xs font-bold text-slate-300 truncate max-w-[90px]">{match.home_team}</span>
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={getPredictedScores(match.id).home}
+                                onChange={(e) => handleLocalPredictionChange(match.id, 'home', e.target.value)}
+                                placeholder="0"
+                                className="w-12 h-9 bg-slate-900 border border-slate-800 rounded-lg text-white font-extrabold text-center text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                              />
+                            </div>
+                            
+                            <span className="text-slate-600 font-bold text-sm">:</span>
 
-                        {/* AWAY WIN */}
-                        <button
-                          disabled={isLocked}
-                          onClick={() => handlePredict(match.id, 'AWAY_WIN')}
-                          className={`py-2 px-3 rounded-xl font-bold text-xs transition border cursor-pointer ${
-                            userPrediction === 'AWAY_WIN'
-                              ? 'bg-emerald-500 border-emerald-400 text-slate-950 shadow-md shadow-emerald-500/10'
-                              : 'bg-slate-950 hover:bg-slate-900 border-slate-800 text-slate-400 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed'
-                          }`}
-                        >
-                          {match.away_team} Win
-                        </button>
-                      </div>
+                            {/* Away score input */}
+                            <div className="flex items-center gap-2 px-2">
+                              <input
+                                type="text"
+                                inputMode="numeric"
+                                pattern="[0-9]*"
+                                value={getPredictedScores(match.id).away}
+                                onChange={(e) => handleLocalPredictionChange(match.id, 'away', e.target.value)}
+                                placeholder="0"
+                                className="w-12 h-9 bg-slate-900 border border-slate-800 rounded-lg text-white font-extrabold text-center text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                              />
+                              <span className="text-xs font-bold text-slate-300 truncate max-w-[90px]">{match.away_team}</span>
+                            </div>
+                          </div>
+
+                          <button
+                            onClick={() => handlePredict(match.id)}
+                            disabled={submitPredictionMutation.isPending || (!isPredictionChanged(match.id) && !predictionsMap[match.id])}
+                            className={`w-full sm:w-auto px-5 py-2.5 rounded-xl font-extrabold text-xs transition cursor-pointer shadow-lg flex items-center justify-center space-x-1.5 ${
+                              isPredictionChanged(match.id)
+                                ? 'bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 text-slate-950 hover:text-black shadow-emerald-500/10'
+                                : predictionsMap[match.id]
+                                ? 'bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:bg-slate-800'
+                                : 'bg-slate-950 border border-slate-900 text-slate-600 cursor-not-allowed'
+                            }`}
+                          >
+                            {isPredictionChanged(match.id) ? (
+                              <span>Save Prediction</span>
+                            ) : predictionsMap[match.id] ? (
+                              <>
+                                <CheckCircle2 size={13} className="text-emerald-400" />
+                                <span>Prediction Saved</span>
+                              </>
+                            ) : (
+                              <span>Save Prediction</span>
+                            )}
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 );

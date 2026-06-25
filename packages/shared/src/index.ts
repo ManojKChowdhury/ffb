@@ -22,9 +22,8 @@ export type LoginInput = z.infer<typeof LoginSchema>;
 
 export const PredictionSubmissionSchema = z.object({
   matchId: z.string().min(1, { message: 'Match ID is required' }),
-  predictedOutcome: z.enum(['HOME_WIN', 'AWAY_WIN', 'DRAW'], {
-    errorMap: () => ({ message: 'Predicted outcome must be HOME_WIN, AWAY_WIN, or DRAW' })
-  })
+  predictedHomeScore: z.number().int().min(0, { message: 'Home score must be a non-negative integer' }),
+  predictedAwayScore: z.number().int().min(0, { message: 'Away score must be a non-negative integer' })
 });
 
 export type PredictionSubmissionInput = z.infer<typeof PredictionSubmissionSchema>;
