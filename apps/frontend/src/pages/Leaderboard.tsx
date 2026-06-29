@@ -2,6 +2,7 @@ import React from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Trophy, Award, Medal, ArrowLeft, RefreshCw, AlertCircle } from 'lucide-react';
 import { Link } from '@tanstack/react-router';
+import { API_URL } from '../config';
 
 export function Leaderboard() {
   const token = localStorage.getItem('token');
@@ -10,7 +11,7 @@ export function Leaderboard() {
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
     queryKey: ['leaderboard'],
     queryFn: async () => {
-      const res = await fetch('http://localhost:3001/api/leaderboard', {
+      const res = await fetch(`${API_URL}/api/leaderboard`, {
         headers: {
           Authorization: `Bearer ${token}`
         }

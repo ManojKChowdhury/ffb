@@ -1,23 +1,18 @@
 {
   "name": "fantasy-football-monorepo",
   "private": true,
+  "packageManager": "pnpm@11.8.0",
   "engines": {
     "node": ">=18.0.0"
   },
   "scripts": {
-    "build": "turbo run build",
-    "dev": "turbo run dev --parallel",
-    "lint": "turbo run lint",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "build": "pnpm dlx turbo run build",
+    "dev": "pnpm dlx turbo run dev",
+    "lint": "pnpm dlx turbo run lint",
+    "clean": "pnpm dlx turbo run clean && rm -rf node_modules"
   },
   "devDependencies": {
-    "turbo": "^1.10.15",
+    "turbo": "^2.10.0",
     "typescript": "^5.1.6"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "bcrypt",
-      "esbuild"
-    ]
   }
 }

@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { Trophy, ShieldAlert, CheckCircle2, UserPlus, Lock, User } from 'lucide-react';
 import { RegistrationSchema } from '@fantasy/shared';
+import { API_URL } from '../config';
 
 export function Register() {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export function Register() {
         throw new Error(parseResult.error.errors[0].message);
       }
 
-      const res = await fetch('http://localhost:3001/api/auth/register', {
+      const res = await fetch(`${API_URL}/api/auth/register`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'

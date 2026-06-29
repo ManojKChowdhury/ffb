@@ -2,6 +2,7 @@ import React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Trophy, LogOut, LayoutDashboard } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { API_URL } from '../config';
 
 export function Navigation() {
   const navigate = useNavigate();
@@ -13,7 +14,7 @@ export function Navigation() {
     queryKey: ['me'],
     queryFn: async () => {
       if (!token) return null;
-      const res = await fetch('http://localhost:3001/api/auth/me', {
+      const res = await fetch(`${API_URL}/api/auth/me`, {
         headers: {
           Authorization: `Bearer ${token}`
         }

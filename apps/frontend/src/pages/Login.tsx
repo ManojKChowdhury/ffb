@@ -3,6 +3,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Trophy, ShieldAlert, Lock, User } from 'lucide-react';
 import { LoginSchema } from '@fantasy/shared';
+import { API_URL } from '../config';
 
 export function Login() {
   const navigate = useNavigate();
@@ -19,7 +20,7 @@ export function Login() {
         throw new Error(parseResult.error.errors[0].message);
       }
 
-      const res = await fetch('http://localhost:3001/api/auth/login', {
+      const res = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json'
