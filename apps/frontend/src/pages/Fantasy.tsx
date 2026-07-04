@@ -8,6 +8,7 @@ export function Fantasy() {
   const { eventId } = useParams({ from: '/fantasy/$eventId' });
   const token = localStorage.getItem('token');
   const queryClient = useQueryClient();
+  const enableSimulation = import.meta.env.VITE_ENABLE_SIMULATION === 'true';
 
   // Score states for each match resolve simulator
   const [resolveScores, setResolveScores] = useState<Record<string, { home: number; away: number }>>({});
@@ -234,7 +235,7 @@ export function Fantasy() {
   };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1">
+    <div className={`mx-auto px-4 sm:px-6 lg:px-8 py-10 flex-1 ${enableSimulation ? 'max-w-7xl' : 'max-w-4xl'}`}>
       {/* Back Link */}
       <Link to="/" className="inline-flex items-center text-sm font-semibold text-emerald-400 hover:text-emerald-300 transition mb-6">
         <ArrowLeft size={16} className="mr-1" />
@@ -434,110 +435,112 @@ export function Fantasy() {
         </div>
 
         {/* Right Column: Simulation Controller (Sandbox Panel) */}
-        <div className="w-full lg:w-96 space-y-6 shrink-0">
-          <div className="glass-panel p-6 rounded-2xl border border-slate-800 relative overflow-hidden shadow-xl">
-            <div className="absolute -top-12 -right-12 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl"></div>
-            
-            <div className="flex items-center space-x-2 pb-4 mb-4 border-b border-slate-800">
-              <Trophy className="text-emerald-400" size={20} />
-              <h2 className="font-display font-extrabold text-lg text-white">Simulation Sandbox</h2>
-            </div>
+        {enableSimulation && (
+          <div className="w-full lg:w-96 space-y-6 shrink-0">
+            <div className="glass-panel p-6 rounded-2xl border border-slate-800 relative overflow-hidden shadow-xl">
+              <div className="absolute -top-12 -right-12 w-24 h-24 bg-emerald-500/5 rounded-full blur-2xl"></div>
+              
+              <div className="flex items-center space-x-2 pb-4 mb-4 border-b border-slate-800">
+                <Trophy className="text-emerald-400" size={20} />
+                <h2 className="font-display font-extrabold text-lg text-white">Simulation Sandbox</h2>
+              </div>
 
-            <p className="text-xs text-slate-400 leading-relaxed mb-6">
-              Use these tools to manually kickoff matches (locking predictions) and submit scores to trigger the points calculator engine.
-            </p>
+              <p className="text-xs text-slate-400 leading-relaxed mb-6">
+                Use these tools to manually kickoff matches (locking predictions) and submit scores to trigger the points calculator engine.
+              </p>
 
-            <div className="space-y-6">
-              {matches.map((match: any) => {
-                const isCompleted = match.status === 'COMPLETED';
-                const isLive = match.status === 'LIVE';
-                const scores = resolveScores[match.id] || { home: 0, away: 0 };
+              <div className="space-y-6">
+                {matches.map((match: any) => {
+                  const isCompleted = match.status === 'COMPLETED';
+                  const isLive = match.status === 'LIVE';
+                  const scores = resolveScores[match.id] || { home: 0, away: 0 };
 
-                return (
-                  <div key={match.id} className="bg-slate-950/40 p-4 rounded-xl border border-slate-900 space-y-3.5">
-                    <div className="flex items-center justify-between text-xs font-bold">
-                      <span className="text-slate-300">{match.home_team} vs {match.away_team}</span>
-                      <span className="text-[10px] text-slate-500 bg-slate-900 px-2 py-0.5 rounded uppercase border border-slate-800">
-                        {match.status}
-                      </span>
-                    </div>
-
-                    {/* Step 1: Force Kickoff */}
-                    {!isCompleted && !isLive && (
-                      <button
-                        onClick={() => simulateKickoffMutation.mutate(match.id)}
-                        disabled={simulateKickoffMutation.isPending}
-                        className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600 border border-indigo-500/20 hover:border-indigo-400 text-indigo-400 hover:text-white text-xs font-bold transition cursor-pointer"
-                      >
-                        <Play size={11} />
-                        <span>Simulate Kickoff (Lock Out)</span>
-                      </button>
-                    )}
-
-                    {/* Step 2: Resolve Scores */}
-                    {!isCompleted && (
-                      <form onSubmit={(e) => handleResolveSubmit(e, match.id)} className="space-y-2">
-                        <div className="flex items-center justify-between gap-3">
-                          <div className="flex-1">
-                            <label className="text-[10px] text-slate-500 font-semibold uppercase">{match.home_team}</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={scores.home}
-                              onChange={(e) => updateScoreState(match.id, 'home', parseInt(e.target.value) || 0)}
-                              className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-xs font-bold text-center mt-1"
-                            />
-                          </div>
-                          <span className="text-slate-600 font-black text-sm pt-4">:</span>
-                          <div className="flex-1">
-                            <label className="text-[10px] text-slate-500 font-semibold uppercase">{match.away_team}</label>
-                            <input
-                              type="number"
-                              min="0"
-                              value={scores.away}
-                              onChange={(e) => updateScoreState(match.id, 'away', parseInt(e.target.value) || 0)}
-                              className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-xs font-bold text-center mt-1"
-                            />
-                          </div>
-                        </div>
-
-                        <button
-                          type="submit"
-                          disabled={simulateResolveMutation.isPending}
-                          className="w-full flex items-center justify-center space-x-1 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 border border-emerald-500/20 hover:border-emerald-400 text-emerald-400 hover:text-slate-950 text-xs font-bold transition cursor-pointer"
-                        >
-                          <CheckCircle2 size={11} />
-                          <span>Resolve Match Outcomes</span>
-                        </button>
-                      </form>
-                    )}
-
-                    {isCompleted && (
-                      <div className="text-center bg-slate-900 border border-slate-800 rounded p-2.5">
-                        <span className="text-xs font-bold text-emerald-400 flex items-center justify-center">
-                          <CheckCircle2 size={13} className="mr-1" />
-                          Match Resolved ({match.home_score} - {match.away_score})
+                  return (
+                    <div key={match.id} className="bg-slate-950/40 p-4 rounded-xl border border-slate-900 space-y-3.5">
+                      <div className="flex items-center justify-between text-xs font-bold">
+                        <span className="text-slate-300">{match.home_team} vs {match.away_team}</span>
+                        <span className="text-[10px] text-slate-500 bg-slate-900 px-2 py-0.5 rounded uppercase border border-slate-800">
+                          {match.status}
                         </span>
                       </div>
-                    )}
-                  </div>
-                );
-              })}
 
-              {/* Reset Everything */}
-              <div className="pt-4 border-t border-slate-800">
-                <button
-                  onClick={() => simulateResetMutation.mutate()}
-                  disabled={simulateResetMutation.isPending}
-                  className="w-full flex items-center justify-center space-x-1.5 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 hover:border-rose-400 text-rose-400 hover:text-white text-xs font-bold transition cursor-pointer"
-                >
-                  <RotateCcw size={13} />
-                  <span>Reset All Sandbox Data</span>
-                </button>
+                      {/* Step 1: Force Kickoff */}
+                      {!isCompleted && !isLive && (
+                        <button
+                          onClick={() => simulateKickoffMutation.mutate(match.id)}
+                          disabled={simulateKickoffMutation.isPending}
+                          className="w-full flex items-center justify-center space-x-1.5 py-1.5 rounded-lg bg-indigo-600/10 hover:bg-indigo-600 border border-indigo-500/20 hover:border-indigo-400 text-indigo-400 hover:text-white text-xs font-bold transition cursor-pointer"
+                        >
+                          <Play size={11} />
+                          <span>Simulate Kickoff (Lock Out)</span>
+                        </button>
+                      )}
+
+                      {/* Step 2: Resolve Scores */}
+                      {!isCompleted && (
+                        <form onSubmit={(e) => handleResolveSubmit(e, match.id)} className="space-y-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="flex-1">
+                              <label className="text-[10px] text-slate-500 font-semibold uppercase">{match.home_team}</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={scores.home}
+                                onChange={(e) => updateScoreState(match.id, 'home', parseInt(e.target.value) || 0)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-xs font-bold text-center mt-1"
+                              />
+                            </div>
+                            <span className="text-slate-600 font-black text-sm pt-4">:</span>
+                            <div className="flex-1">
+                              <label className="text-[10px] text-slate-500 font-semibold uppercase">{match.away_team}</label>
+                              <input
+                                type="number"
+                                min="0"
+                                value={scores.away}
+                                onChange={(e) => updateScoreState(match.id, 'away', parseInt(e.target.value) || 0)}
+                                className="w-full bg-slate-950 border border-slate-800 rounded px-2 py-1 text-white text-xs font-bold text-center mt-1"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="submit"
+                            disabled={simulateResolveMutation.isPending}
+                            className="w-full flex items-center justify-center space-x-1 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500 border border-emerald-500/20 hover:border-emerald-400 text-emerald-400 hover:text-slate-950 text-xs font-bold transition cursor-pointer"
+                          >
+                            <CheckCircle2 size={11} />
+                            <span>Resolve Match Outcomes</span>
+                          </button>
+                        </form>
+                      )}
+
+                      {isCompleted && (
+                        <div className="text-center bg-slate-900 border border-slate-800 rounded p-2.5">
+                          <span className="text-xs font-bold text-emerald-400 flex items-center justify-center">
+                            <CheckCircle2 size={13} className="mr-1" />
+                            Match Resolved ({match.home_score} - {match.away_score})
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
+
+                {/* Reset Everything */}
+                <div className="pt-4 border-t border-slate-800">
+                  <button
+                    onClick={() => simulateResetMutation.mutate()}
+                    disabled={simulateResetMutation.isPending}
+                    className="w-full flex items-center justify-center space-x-1.5 py-2.5 rounded-xl bg-rose-500/10 hover:bg-rose-500 border border-rose-500/20 hover:border-rose-400 text-rose-400 hover:text-white text-xs font-bold transition cursor-pointer"
+                  >
+                    <RotateCcw size={13} />
+                    <span>Reset All Sandbox Data</span>
+                  </button>
+                </div>
               </div>
             </div>
           </div>
-        </div>
+        )}
 
       </div>
     </div>

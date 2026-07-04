@@ -36,7 +36,10 @@ fastify.register(jwt, {
 // Register Route Groups
 fastify.register(authRoutes, { prefix: '/api/auth' });
 fastify.register(fantasyRoutes, { prefix: '/api' });
-fastify.register(simulationRoutes, { prefix: '/api/simulation' });
+
+if (process.env.ENABLE_SIMULATION === 'true') {
+  fastify.register(simulationRoutes, { prefix: '/api/simulation' });
+}
 
 // Add custom decorator for JWT authentication validation
 fastify.decorate('authenticate', async (request: any, reply: any) => {
