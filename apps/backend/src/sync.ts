@@ -1,13 +1,36 @@
 import { query } from './db';
 
 /**
- * Utility to parse local_date string in format "MM/DD/YYYY HH:MM" to UTC Date object.
+ * Utility to parse local_date string in format "MM/DD/YYYY HH:MM" to UTC Date object,
+ * adjusting for the stadium's timezone offset in June/July 2026.
  */
-function parseLocalDate(localDateStr: string): Date {
+function parseLocalDate(localDateStr: string, stadiumId: string): Date {
   const [datePart, timePart] = localDateStr.split(' ');
   const [month, day, year] = datePart.split('/').map(Number);
   const [hour, minute] = timePart.split(':').map(Number);
-  return new Date(Date.UTC(year, month - 1, day, hour, minute));
+
+  // Timezone offset mapping based on stadium region/ID for June/July 2026 (Daylight Saving Time)
+  let offsetHours = 0;
+  
+  const edtStadiums = ['7', '8', '9', '10', '11', '12'];
+  const cdtStadiums = ['4', '5', '6'];
+  const mexStadiums = ['1', '2', '3'];
+  const pdtStadiums = ['13', '14', '15', '16'];
+
+  if (edtStadiums.includes(stadiumId)) {
+    offsetHours = -4; // Eastern Daylight Time (UTC-4)
+  } else if (cdtStadiums.includes(stadiumId)) {
+    offsetHours = -5; // Central Daylight Time (UTC-5)
+  } else if (mexStadiums.includes(stadiumId)) {
+    offsetHours = -6; // Mexico Standard Time (UTC-6)
+  } else if (pdtStadiums.includes(stadiumId)) {
+    offsetHours = -7; // Pacific Daylight Time (UTC-7)
+  }
+
+  const utcDate = new Date(Date.UTC(year, month - 1, day, hour, minute));
+  // Convert local stadium time to UTC
+  utcDate.setHours(utcDate.getHours() - offsetHours);
+  return utcDate;
 }
 
 /**
@@ -74,7 +97,7 @@ export async function syncWorldCupMatches() {
       // Parse kickoff time
       let kickoffTime: Date;
       if (game.local_date) {
-        kickoffTime = parseLocalDate(game.local_date);
+        kickoffTime = parseLocalDate(game.local_date, game.stadium_id);
       } else {
         kickoffTime = new Date();
       }
