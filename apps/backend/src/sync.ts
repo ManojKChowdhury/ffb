@@ -48,10 +48,12 @@ async function gradePredictionsForMatch(matchId: string, homeScore: number, away
 
     for (const pred of predsRes.rows) {
       const isCorrect = pred.predicted_home_score === homeScore && pred.predicted_away_score === awayScore;
+
       if (isCorrect) {
+        const reward = (pred.bet_amount || 0) * 3;
         await query(
-          'UPDATE users SET total_points = total_points + 1 WHERE id = $1',
-          [pred.user_id]
+          'UPDATE users SET wallet_balance = wallet_balance + $1, points = points + 1 WHERE id = $2',
+          [reward, pred.user_id]
         );
       }
       await query(

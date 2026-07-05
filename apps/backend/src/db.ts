@@ -16,7 +16,14 @@ export const pool = new Pool({
 let useMock = false;
 
 // Mock DB State
-let mockUsers: Array<{ id: string; username: string; password_hash: string; total_points: number }> = [];
+let mockUsers: Array<{
+  id: string;
+  username: string;
+  password_hash: string;
+  total_points: number;
+  wallet_balance: number;
+  points: number;
+}> = [];
 let mockMatches: Array<{
   id: string;
   event_id: string;
@@ -33,6 +40,7 @@ let mockPredictions: Array<{
   match_id: string;
   predicted_home_score: number;
   predicted_away_score: number;
+  bet_amount: number | null;
   is_processed: boolean;
 }> = [];
 
@@ -139,21 +147,23 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
       id: crypto.randomUUID(),
       username,
       password_hash: passwordHash,
-      total_points: 0
+      total_points: 0,
+      wallet_balance: 1000,
+      points: 0
     };
     mockUsers.push(newUser);
     return { rows: [newUser] };
   }
 
-  // 3. SELECT id, username, password_hash, total_points FROM users WHERE username = $1
-  if (normalizedSql.startsWith('SELECT id, username, password_hash, total_points FROM users WHERE username =')) {
+  // 3. SELECT id, username, password_hash, total_points / points / wallet_balance FROM users WHERE username = $1
+  if (normalizedSql.includes('SELECT id, username, password_hash') && normalizedSql.includes('FROM users WHERE username =')) {
     const username = params[0];
     const match = mockUsers.find(u => u.username === username);
     return { rows: match ? [match] : [] };
   }
 
-  // 4. SELECT id, username, total_points FROM users WHERE id = $1
-  if (normalizedSql.startsWith('SELECT id, username, total_points FROM users WHERE id =')) {
+  // 4. SELECT id, username, total_points / points / wallet_balance FROM users WHERE id = $1
+  if (normalizedSql.includes('SELECT id, username') && normalizedSql.includes('FROM users WHERE id =')) {
     const userId = params[0];
     const match = mockUsers.find(u => u.id === userId);
     return { rows: match ? [match] : [] };
@@ -191,11 +201,13 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
     const matchId = params[1];
     const homeScore = params[2];
     const awayScore = params[3];
+    const betAmount = params[4] !== undefined ? params[4] : null;
 
     const idx = mockPredictions.findIndex(p => p.user_id === userId && p.match_id === matchId);
     if (idx >= 0) {
       mockPredictions[idx].predicted_home_score = homeScore;
       mockPredictions[idx].predicted_away_score = awayScore;
+      mockPredictions[idx].bet_amount = betAmount;
       mockPredictions[idx].is_processed = false;
     } else {
       mockPredictions.push({
@@ -204,6 +216,7 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
         match_id: matchId,
         predicted_home_score: homeScore,
         predicted_away_score: awayScore,
+        bet_amount: betAmount,
         is_processed: false
       });
     }
@@ -211,22 +224,34 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
   }
 
   // 10. GET my predictions
-  if (normalizedSql.startsWith('SELECT match_id, predicted_home_score, predicted_away_score, is_processed FROM predictions WHERE user_id =')) {
+  if (normalizedSql.includes('SELECT match_id') && normalizedSql.includes('FROM predictions WHERE user_id =')) {
     const userId = params[0];
     const results = mockPredictions.filter(p => p.user_id === userId);
-    return { rows: results };
+    return { rows: results.map(r => ({
+      match_id: r.match_id,
+      predicted_home_score: r.predicted_home_score,
+      predicted_away_score: r.predicted_away_score,
+      bet_amount: r.bet_amount,
+      is_processed: r.is_processed
+    })) };
   }
 
   // 11. GET leaderboard
-  if (normalizedSql.startsWith('SELECT username, total_points FROM users ORDER BY total_points DESC')) {
-    // Index emulation: Sort by total_points DESC, then by username ASC
+  if (normalizedSql.includes('SELECT username') && (normalizedSql.includes('FROM users ORDER BY points DESC') || normalizedSql.includes('ORDER BY total_points DESC'))) {
     const sorted = [...mockUsers].sort((a, b) => {
-      if (b.total_points !== a.total_points) {
-        return b.total_points - a.total_points;
+      const ptsA = a.points !== undefined ? a.points : a.total_points;
+      const ptsB = b.points !== undefined ? b.points : b.total_points;
+      if (ptsB !== ptsA) {
+        return ptsB - ptsA;
       }
       return a.username.localeCompare(b.username);
     });
-    return { rows: sorted.map(u => ({ username: u.username, total_points: u.total_points })) };
+    return { rows: sorted.map(u => ({
+      username: u.username,
+      points: u.points !== undefined ? u.points : u.total_points,
+      total_points: u.points !== undefined ? u.points : u.total_points,
+      wallet_balance: u.wallet_balance !== undefined ? u.wallet_balance : 1000
+    })) };
   }
 
   // 12. Simulate kickoff
@@ -294,12 +319,56 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
     return { rows: results };
   }
 
-  // 15. Increment points
+  // 15. Increment points and update wallet resolution reward
+  if (normalizedSql.startsWith('UPDATE users SET wallet_balance = wallet_balance +') && normalizedSql.includes('points = points +')) {
+    const reward = params[0];
+    const userId = params[2] || params[1];
+    const idx = mockUsers.findIndex(u => u.id === userId);
+    if (idx >= 0) {
+      mockUsers[idx].wallet_balance = (mockUsers[idx].wallet_balance || 1000) + reward;
+      mockUsers[idx].points = (mockUsers[idx].points || 0) + 1;
+      mockUsers[idx].total_points = mockUsers[idx].points;
+    }
+    return { rows: [] };
+  }
+
+  // 15a. Deduct bet amount
+  if (normalizedSql.startsWith('UPDATE users SET wallet_balance = wallet_balance -')) {
+    const amount = params[0];
+    const userId = params[1];
+    const idx = mockUsers.findIndex(u => u.id === userId);
+    if (idx >= 0) {
+      mockUsers[idx].wallet_balance = (mockUsers[idx].wallet_balance || 1000) - amount;
+    }
+    return { rows: [] };
+  }
+
+  // 15b. Refund old bet amount
+  if (normalizedSql.startsWith('UPDATE users SET wallet_balance = wallet_balance +') && !normalizedSql.includes('points = points +')) {
+    const amount = params[0];
+    const userId = params[1];
+    const idx = mockUsers.findIndex(u => u.id === userId);
+    if (idx >= 0) {
+      mockUsers[idx].wallet_balance = (mockUsers[idx].wallet_balance || 1000) + amount;
+    }
+    return { rows: [] };
+  }
+
+  // 15c. Daily allowance update
+  if (normalizedSql.startsWith('UPDATE users SET wallet_balance = wallet_balance + 200')) {
+    mockUsers.forEach(u => {
+      u.wallet_balance = (u.wallet_balance || 1000) + 200;
+    });
+    return { rows: [] };
+  }
+
+  // 15d. Legacy total points increment (if any)
   if (normalizedSql.startsWith('UPDATE users SET total_points = total_points + 1 WHERE id =')) {
     const userId = params[0];
     const idx = mockUsers.findIndex(u => u.id === userId);
     if (idx >= 0) {
-      mockUsers[idx].total_points += 1;
+      mockUsers[idx].points = (mockUsers[idx].points || 0) + 1;
+      mockUsers[idx].total_points = mockUsers[idx].points;
     }
     return { rows: [] };
   }
@@ -314,17 +383,20 @@ async function handleMockQuery(text: string, params: any[]): Promise<{ rows: any
     return { rows: [] };
   }
 
-  // 17. Reset actions
-  if (normalizedSql.startsWith('DELETE FROM predictions')) {
+  if (normalizedSql.includes('DELETE FROM predictions')) {
     mockPredictions = [];
     return { rows: [] };
   }
-  if (normalizedSql.startsWith('DELETE FROM matches')) {
+  if (normalizedSql.includes('DELETE FROM matches')) {
     mockMatches = [];
     return { rows: [] };
   }
-  if (normalizedSql.startsWith('UPDATE users SET total_points = 0')) {
-    mockUsers.forEach(u => u.total_points = 0);
+  if (normalizedSql.includes('UPDATE users SET total_points = 0') || normalizedSql.includes('points = 0')) {
+    mockUsers.forEach(u => {
+      u.total_points = 0;
+      u.points = 0;
+      u.wallet_balance = 1000;
+    });
     return { rows: [] };
   }
 
@@ -389,6 +461,15 @@ export async function initDb() {
       `);
 
       // Database migration logic for existing tables
+      await conn.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS wallet_balance INT DEFAULT 1000 NOT NULL;
+      `);
+      await conn.query(`
+        ALTER TABLE users ADD COLUMN IF NOT EXISTS points INT DEFAULT 0 NOT NULL;
+      `);
+      await conn.query(`
+        ALTER TABLE predictions ADD COLUMN IF NOT EXISTS bet_amount INT;
+      `);
       await conn.query(`
         ALTER TABLE predictions ADD COLUMN IF NOT EXISTS predicted_home_score INT;
       `);

@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link, useNavigate } from '@tanstack/react-router';
-import { Trophy, LogOut, LayoutDashboard } from 'lucide-react';
+import { Trophy, LogOut, LayoutDashboard, Coins } from 'lucide-react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { API_URL } from '../config';
 
@@ -76,11 +76,16 @@ export function Navigation() {
             {user && (
               <div className="flex items-center space-x-3 bg-slate-950 px-4 py-1.5 rounded-full border border-slate-800">
                 <div className="w-2.5 h-2.5 rounded-full bg-emerald-400 pulse-glow"></div>
-                <span className="text-xs text-slate-400 font-medium">@{user.username}</span>
-                <span className="text-slate-600">|</span>
+                <span className="text-xs text-slate-400 font-medium hidden sm:inline">@{user.username}</span>
+                <span className="text-slate-600 hidden sm:inline">|</span>
                 <div className="flex items-center space-x-1.5">
                   <Trophy size={14} className="text-amber-400" />
-                  <span className="text-sm font-extrabold text-white">{user.total_points} pts</span>
+                  <span className="text-sm font-extrabold text-white">{user.points ?? user.total_points ?? 0} pts</span>
+                </div>
+                <span className="text-slate-600">|</span>
+                <div className="flex items-center space-x-1.5">
+                  <Coins size={14} className="text-yellow-400" />
+                  <span className="text-sm font-extrabold text-emerald-400">{user.wallet_balance ?? 1000} tokens</span>
                 </div>
               </div>
             )}

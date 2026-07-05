@@ -7,6 +7,7 @@ import { initDb } from './db';
 import { authRoutes } from './routes/auth';
 import { fantasyRoutes } from './routes/fantasy';
 import { simulationRoutes } from './routes/simulation';
+import { startAllowanceJob } from './jobs/allowance';
 
 dotenv.config();
 
@@ -63,6 +64,9 @@ const start = async () => {
     // 2. Start fastify server
     await fastify.listen({ port, host });
     console.log(`Fantasy Football Backend running on http://${host}:${port}`);
+    
+    // 3. Start Daily Allowance Engine cron job
+    startAllowanceJob(fastify.log);
   } catch (err) {
     fastify.log.error(err);
     process.exit(1);

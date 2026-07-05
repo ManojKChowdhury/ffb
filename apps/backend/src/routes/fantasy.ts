@@ -1,6 +1,6 @@
 import { FastifyInstance } from 'fastify';
 import { ZodTypeProvider } from 'fastify-type-provider-zod';
-import { PredictionSubmissionSchema } from '@fantasy/shared';
+import { BetSubmissionSchema } from '@fantasy/shared';
 import { query } from '../db';
 import { syncWorldCupMatches } from '../sync';
 
@@ -41,24 +41,33 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     }
   });
 
-  // 2. Submit or update a prediction
+  // 2. Submit or update a prediction with bet stake
   server.post('/predictions', {
     onRequest: [(fastify as any).authenticate],
     schema: {
-      body: PredictionSubmissionSchema
+      body: BetSubmissionSchema
     }
   }, async (request, reply) => {
     const userJwt = request.user as { id: string; username: string };
-    const { matchId, predictedHomeScore, predictedAwayScore } = request.body as {
+    const { matchId, predictedHomeScore, predictedAwayScore, betAmount } = request.body as {
       matchId: string;
       predictedHomeScore: number;
       predictedAwayScore: number;
+      betAmount: number;
     };
 
+    if (betAmount <= 0) {
+      return reply.status(400).send({ error: 'Bad Request', message: 'Bet amount must be greater than zero' });
+    }
+
     try {
+      // Start database transaction
+      await query('BEGIN');
+
       // Fetch match kickoff details to enforce lockout logic
       const matchRes = await query('SELECT kickoff_time, status FROM matches WHERE id = $1', [matchId]);
       if (matchRes.rows.length === 0) {
+        await query('ROLLBACK');
         return reply.status(404).send({ error: 'Not Found', message: 'Match not found' });
       }
 
@@ -68,30 +77,71 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
 
       // Lockout Logic: reject writes if match kickoff has passed or match is already live/completed
       if (now >= kickoff || match.status !== 'SCHEDULED') {
+        await query('ROLLBACK');
         return reply.status(400).send({
           error: 'Forbidden',
           message: 'Match has already kicked off. Predictions are locked!'
         });
       }
 
+      // Fetch user's current wallet balance
+      const userRes = await query('SELECT wallet_balance FROM users WHERE id = $1', [userJwt.id]);
+      if (userRes.rows.length === 0) {
+        await query('ROLLBACK');
+        return reply.status(404).send({ error: 'Not Found', message: 'User not found' });
+      }
+      const walletBalance = userRes.rows[0].wallet_balance;
+
+      // Fetch user's existing prediction for this match (if any)
+      const existingPredRes = await query(
+        'SELECT bet_amount FROM predictions WHERE user_id = $1 AND match_id = $2',
+        [userJwt.id, matchId]
+      );
+      const oldBetAmount = existingPredRes.rows.length > 0 ? (existingPredRes.rows[0].bet_amount || 0) : 0;
+
+      // Check if user has sufficient funds (accounting for refunding the old stake)
+      const affordableBalance = walletBalance + oldBetAmount;
+      if (betAmount > affordableBalance) {
+        await query('ROLLBACK');
+        return reply.status(400).send({
+          error: 'Bad Request',
+          message: `Insufficient wallet balance. You need ${betAmount} tokens, but you only have ${affordableBalance} tokens (including refund from previous bet).`
+        });
+      }
+
+      // Deduct net stake difference from user's wallet
+      const netStakeDifference = betAmount - oldBetAmount;
+      if (netStakeDifference !== 0) {
+        if (netStakeDifference > 0) {
+          await query('UPDATE users SET wallet_balance = wallet_balance - $1 WHERE id = $2', [netStakeDifference, userJwt.id]);
+        } else {
+          // Refund difference
+          await query('UPDATE users SET wallet_balance = wallet_balance + $1 WHERE id = $2', [-netStakeDifference, userJwt.id]);
+        }
+      }
+
       // Upsert user prediction
       await query(`
-        INSERT INTO predictions (user_id, match_id, predicted_home_score, predicted_away_score)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO predictions (user_id, match_id, predicted_home_score, predicted_away_score, bet_amount)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (user_id, match_id) 
         DO UPDATE SET 
           predicted_home_score = EXCLUDED.predicted_home_score,
           predicted_away_score = EXCLUDED.predicted_away_score,
+          bet_amount = EXCLUDED.bet_amount,
           is_processed = false
-      `, [userJwt.id, matchId, predictedHomeScore, predictedAwayScore]);
+      `, [userJwt.id, matchId, predictedHomeScore, predictedAwayScore, betAmount]);
+
+      await query('COMMIT');
 
       return reply.send({
         success: true,
-        message: 'Prediction submitted successfully'
+        message: 'Prediction bet submitted successfully'
       });
     } catch (err) {
+      await query('ROLLBACK');
       request.log.error(err);
-      return reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to save prediction' });
+      return reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to save prediction bet' });
     }
   });
 
@@ -102,7 +152,7 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     const userJwt = request.user as { id: string; username: string };
 
     try {
-      const res = await query('SELECT match_id, predicted_home_score, predicted_away_score, is_processed FROM predictions WHERE user_id = $1', [userJwt.id]);
+      const res = await query('SELECT match_id, predicted_home_score, predicted_away_score, bet_amount, is_processed FROM predictions WHERE user_id = $1', [userJwt.id]);
       return reply.send({ success: true, predictions: res.rows });
     } catch (err) {
       request.log.error(err);
@@ -115,9 +165,13 @@ export async function fantasyRoutes(fastify: FastifyInstance) {
     onRequest: [(fastify as any).authenticate]
   }, async (request, reply) => {
     try {
-      // Sorting order: descending total points, then alphabetical by username for tie breaking
-      const res = await query('SELECT username, total_points FROM users ORDER BY total_points DESC, username ASC');
-      return reply.send({ success: true, leaderboard: res.rows });
+      // Sorting order: descending points, then alphabetical by username for tie breaking
+      const res = await query('SELECT username, points, wallet_balance FROM users ORDER BY points DESC, username ASC');
+      const mapped = res.rows.map(row => ({
+        ...row,
+        total_points: row.points
+      }));
+      return reply.send({ success: true, leaderboard: mapped });
     } catch (err) {
       request.log.error(err);
       return reply.status(500).send({ error: 'Internal Server Error', message: 'Failed to query leaderboard' });

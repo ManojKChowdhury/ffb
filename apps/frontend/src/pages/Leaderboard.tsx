@@ -72,6 +72,7 @@ export function Leaderboard() {
                 <tr className="bg-slate-900/60 border-b border-slate-800 text-slate-400 font-semibold text-xs tracking-wider uppercase">
                   <th className="py-4 px-6 text-center w-20">Rank</th>
                   <th className="py-4 px-6">Contestant</th>
+                  <th className="py-4 px-6 text-right w-36">Tokens Balance</th>
                   <th className="py-4 px-6 text-right w-36">Total Points</th>
                 </tr>
               </thead>
@@ -113,6 +114,9 @@ export function Leaderboard() {
                       <td className="py-4 px-6 text-center">{rankRender}</td>
                       <td className="py-4 px-6">
                         <span className="font-bold text-slate-100 block text-sm">@{user.username}</span>
+                      </td>
+                      <td className="py-4 px-6 text-right text-xs sm:text-sm font-semibold text-slate-300">
+                        {user.wallet_balance !== undefined ? user.wallet_balance : 1000} tokens
                       </td>
                       <td className="py-4 px-6 text-right">
                         <span className="font-display font-extrabold text-base text-emerald-400">

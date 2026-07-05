@@ -57,7 +57,7 @@ export async function authRoutes(fastify: FastifyInstance) {
 
     try {
       // Find user
-      const userRes = await query('SELECT id, username, password_hash, total_points FROM users WHERE username = $1', [username]);
+      const userRes = await query('SELECT id, username, password_hash, wallet_balance, points, total_points FROM users WHERE username = $1', [username]);
       if (userRes.rows.length === 0) {
         return reply.status(400).send({
           error: 'Bad Request',
@@ -88,7 +88,9 @@ export async function authRoutes(fastify: FastifyInstance) {
         user: {
           id: user.id,
           username: user.username,
-          total_points: user.total_points
+          wallet_balance: user.wallet_balance,
+          points: user.points,
+          total_points: user.points
         }
       });
     } catch (err) {
@@ -107,17 +109,23 @@ export async function authRoutes(fastify: FastifyInstance) {
     const userJwt = request.user as { id: string; username: string };
     
     try {
-      const userRes = await query('SELECT id, username, total_points FROM users WHERE id = $1', [userJwt.id]);
+      const userRes = await query('SELECT id, username, wallet_balance, points FROM users WHERE id = $1', [userJwt.id]);
       if (userRes.rows.length === 0) {
         return reply.status(404).send({
           error: 'Not Found',
           message: 'User session not found in database'
         });
       }
-
+      const user = userRes.rows[0];
       return reply.send({
         success: true,
-        user: userRes.rows[0]
+        user: {
+          id: user.id,
+          username: user.username,
+          wallet_balance: user.wallet_balance,
+          points: user.points,
+          total_points: user.points
+        }
       });
     } catch (err) {
       request.log.error(err);

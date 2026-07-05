@@ -27,3 +27,12 @@ export const PredictionSubmissionSchema = z.object({
 });
 
 export type PredictionSubmissionInput = z.infer<typeof PredictionSubmissionSchema>;
+
+export const BetSubmissionSchema = z.object({
+  matchId: z.string().min(1, { message: 'Match ID is required' }),
+  predictedHomeScore: z.number().int().min(0, { message: 'Home score must be a non-negative integer' }),
+  predictedAwayScore: z.number().int().min(0, { message: 'Away score must be a non-negative integer' }),
+  betAmount: z.number().int().positive({ message: 'Bet amount must be a positive integer greater than zero' })
+});
+
+export type BetSubmissionInput = z.infer<typeof BetSubmissionSchema>;

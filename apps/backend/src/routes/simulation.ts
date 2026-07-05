@@ -72,14 +72,15 @@ export async function simulationRoutes(fastify: FastifyInstance) {
 
       let correctPredictionsCount = 0;
 
-      // 3. Score each prediction
+      // 3. Score each prediction using exact score comparison
       for (const pred of predsRes.rows) {
         const isCorrect = pred.predicted_home_score === homeScore && pred.predicted_away_score === awayScore;
         
         if (isCorrect) {
+          const reward = (pred.bet_amount || 0) * 3;
           await query(
-            'UPDATE users SET total_points = total_points + 1 WHERE id = $1',
-            [pred.user_id]
+            'UPDATE users SET wallet_balance = wallet_balance + $1, points = points + 1 WHERE id = $2',
+            [reward, pred.user_id]
           );
           correctPredictionsCount++;
         }
@@ -116,7 +117,7 @@ export async function simulationRoutes(fastify: FastifyInstance) {
       // Clear data
       await query('DELETE FROM predictions');
       await query('DELETE FROM matches');
-      await query('UPDATE users SET total_points = 0');
+      await query('UPDATE users SET points = 0, wallet_balance = 1000');
       
       await query('COMMIT');
 
