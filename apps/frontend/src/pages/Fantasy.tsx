@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
-import { Calendar, Lock, Play, Trophy, CheckCircle2, RotateCcw, ArrowLeft, Clock, Coins, ChevronDown, ChevronRight } from 'lucide-react';
+import { Calendar, Lock, Play, Trophy, CheckCircle2, RotateCcw, ArrowLeft, Clock, Coins, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { Link, useParams } from '@tanstack/react-router';
 import { API_URL } from '../config';
 
@@ -18,6 +18,9 @@ export function Fantasy() {
   
   // Local bet stake amount inputs
   const [localBets, setLocalBets] = useState<Record<string, string>>({});
+
+  // Validation errors (per match) for uncommitted inputs
+  const [validationErrors, setValidationErrors] = useState<Record<string, { homeScore?: boolean; awayScore?: boolean; stake?: boolean }>>({});
 
   // Fetch user details for wallet balance check
   const { data: userData } = useQuery({
@@ -85,8 +88,20 @@ export function Fantasy() {
     return groups;
   };
 
-  const activeMatches = matches.filter((m: any) => m.status !== 'COMPLETED');
-  const completedMatches = matches.filter((m: any) => m.status === 'COMPLETED');
+  const [teamFilter, setTeamFilter] = useState('');
+
+  // Filter matches based on search term
+  const filteredMatches = React.useMemo(() => {
+    if (!teamFilter.trim()) return matches;
+    const term = teamFilter.toLowerCase();
+    return matches.filter((m: any) =>
+      m.home_team.toLowerCase().includes(term) ||
+      m.away_team.toLowerCase().includes(term)
+    );
+  }, [matches, teamFilter]);
+
+  const activeMatches = filteredMatches.filter((m: any) => m.status !== 'COMPLETED');
+  const completedMatches = filteredMatches.filter((m: any) => m.status === 'COMPLETED');
 
   const activeGroups = groupMatchesByDate(activeMatches);
   const completedGroups = groupMatchesByDate(completedMatches);
@@ -233,11 +248,34 @@ export function Fantasy() {
         [team]: value
       }
     }));
+
+    // Clear validation error when user types a value
+    if (value !== '') {
+      setValidationErrors(prev => {
+        const matchErrors = prev[matchId];
+        if (!matchErrors) return prev;
+        const nextErrors = { ...matchErrors };
+        if (team === 'home') delete nextErrors.homeScore;
+        if (team === 'away') delete nextErrors.awayScore;
+        return { ...prev, [matchId]: nextErrors };
+      });
+    }
   };
 
   const handleBetChange = (matchId: string, value: string) => {
     if (value !== '' && !/^\d+$/.test(value)) return;
     setLocalBets(prev => ({ ...prev, [matchId]: value }));
+
+    // Clear validation error when user types a value
+    if (value !== '') {
+      setValidationErrors(prev => {
+        const matchErrors = prev[matchId];
+        if (!matchErrors) return prev;
+        const nextErrors = { ...matchErrors };
+        delete nextErrors.stake;
+        return { ...prev, [matchId]: nextErrors };
+      });
+    }
   };
 
   const isPredictionChanged = (matchId: string) => {
@@ -261,12 +299,16 @@ export function Fantasy() {
     const scores = getPredictedScores(matchId);
     const betStr = getPredictedBet(matchId);
     
-    if (scores.home === '' || scores.away === '') {
-      alert('Please enter predicted scores for both teams.');
-      return;
-    }
-    if (betStr === '') {
-      alert('Please enter a bet amount.');
+    const errors: { homeScore?: boolean; awayScore?: boolean; stake?: boolean } = {};
+    if (scores.home === '') errors.homeScore = true;
+    if (scores.away === '') errors.awayScore = true;
+    if (betStr === '') errors.stake = true;
+
+    if (Object.keys(errors).length > 0) {
+      setValidationErrors(prev => ({
+        ...prev,
+        [matchId]: errors
+      }));
       return;
     }
     
@@ -417,7 +459,11 @@ export function Fantasy() {
                       value={getPredictedScores(match.id).home}
                       onChange={(e) => handleLocalPredictionChange(match.id, 'home', e.target.value)}
                       placeholder="0"
-                      className="w-12 h-9 bg-slate-900 border border-slate-800 rounded-lg text-white font-extrabold text-center text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                      className={`w-12 h-9 bg-slate-900 rounded-lg text-white font-extrabold text-center text-sm outline-none transition ${
+                        validationErrors[match.id]?.homeScore
+                          ? 'border border-rose-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                          : 'border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                      }`}
                     />
                   </div>
                   
@@ -432,7 +478,11 @@ export function Fantasy() {
                       value={getPredictedScores(match.id).away}
                       onChange={(e) => handleLocalPredictionChange(match.id, 'away', e.target.value)}
                       placeholder="0"
-                      className="w-12 h-9 bg-slate-900 border border-slate-800 rounded-lg text-white font-extrabold text-center text-sm focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500 outline-none transition"
+                      className={`w-12 h-9 bg-slate-900 rounded-lg text-white font-extrabold text-center text-sm outline-none transition ${
+                        validationErrors[match.id]?.awayScore
+                          ? 'border border-rose-500 focus:border-rose-500 focus:ring-1 focus:ring-rose-500'
+                          : 'border border-slate-800 focus:border-emerald-500 focus:ring-1 focus:ring-emerald-500'
+                      }`}
                     />
                     <span className="text-xs font-bold text-slate-300 truncate max-w-[90px]">{match.away_team}</span>
                   </div>
@@ -441,7 +491,11 @@ export function Fantasy() {
 
               {/* 2. Stake Input & Submit */}
               <div className="flex flex-col sm:flex-row items-center gap-3">
-                <div className="flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl border border-slate-800 w-full sm:w-auto">
+                <div className={`flex items-center space-x-2 bg-slate-950 px-3 py-1.5 rounded-xl w-full sm:w-auto transition ${
+                  validationErrors[match.id]?.stake
+                    ? 'border border-rose-500'
+                    : 'border border-slate-800'
+                }`}>
                   <Coins size={14} className="text-yellow-500" />
                   <span className="text-[10px] text-slate-500 font-extrabold uppercase">Stake</span>
                   <input
@@ -466,12 +520,10 @@ export function Fantasy() {
                   const affordable = currentBalance + savedBetAmount;
                   
                   const isAffordable = betVal <= affordable;
-                  const isValidStake = betVal > 0;
-                  const hasScores = scores.home !== '' && scores.away !== '';
                   const isChanged = isPredictionChanged(match.id);
                   const isPending = submitPredictionMutation.isPending;
 
-                  const isSubmitDisabled = isPending || !isValidStake || !isAffordable || !hasScores || (!isChanged && !!saved);
+                  const isSubmitDisabled = isPending || !isAffordable || (!isChanged && !!saved);
 
                   return (
                     <button
@@ -480,11 +532,9 @@ export function Fantasy() {
                       className={`w-full sm:w-auto px-5 py-2 rounded-xl font-extrabold text-xs transition cursor-pointer shadow-lg flex items-center justify-center space-x-1.5 flex-1 ${
                         !isAffordable
                           ? 'bg-rose-500/10 border border-rose-500/20 text-rose-400 cursor-not-allowed'
-                          : isChanged
+                          : (isChanged || !saved)
                           ? 'bg-emerald-500 hover:bg-emerald-400 border border-emerald-400 text-slate-950 hover:text-black shadow-emerald-500/10'
-                          : saved
-                          ? 'bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:bg-slate-800'
-                          : 'bg-slate-950 border border-slate-900 text-slate-600 cursor-not-allowed'
+                          : 'bg-slate-900 border border-emerald-500/30 text-emerald-400 hover:bg-slate-800'
                       }`}
                     >
                       {!isAffordable ? (
@@ -541,6 +591,20 @@ export function Fantasy() {
             </p>
           </div>
 
+          {/* Team Filter Search Input */}
+          {!matchesLoading && matches.length > 0 && (
+            <div className="flex items-center bg-slate-950/60 border border-slate-800 px-4 py-2 rounded-xl focus-within:border-emerald-500/50 transition mb-6">
+              <Search size={16} className="text-slate-400 mr-2" />
+              <input
+                type="text"
+                placeholder="Filter matches by team name..."
+                value={teamFilter}
+                onChange={(e) => setTeamFilter(e.target.value)}
+                className="bg-transparent border-none text-white text-sm outline-none w-full focus:ring-0"
+              />
+            </div>
+          )}
+
           {matchesLoading ? (
             <div className="flex flex-col items-center justify-center py-20 space-y-4">
               <div className="w-10 h-10 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
@@ -549,6 +613,10 @@ export function Fantasy() {
           ) : matches.length === 0 ? (
             <div className="glass-panel p-8 text-center rounded-2xl text-slate-400 border border-slate-900">
               No active match fixtures today.
+            </div>
+          ) : filteredMatches.length === 0 ? (
+            <div className="glass-panel p-8 text-center rounded-2xl text-slate-400 border border-slate-900">
+              No matches found matching "{teamFilter}".
             </div>
           ) : (
             <div className="space-y-10">

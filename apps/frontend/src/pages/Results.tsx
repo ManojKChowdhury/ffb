@@ -1,6 +1,6 @@
 import React from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { Calendar, AlertCircle, ArrowLeft, RefreshCw, Clock, ChevronDown, ChevronRight } from 'lucide-react';
+import { Calendar, AlertCircle, ArrowLeft, RefreshCw, Clock, ChevronDown, ChevronRight, Search } from 'lucide-react';
 import { Link, useParams } from '@tanstack/react-router';
 import { API_URL } from '../config';
 
@@ -8,6 +8,7 @@ export function Results() {
   const { eventId } = useParams({ from: '/matches/$eventId' });
   const token = localStorage.getItem('token');
   const [isSyncing, setIsSyncing] = React.useState(false);
+  const [teamFilter, setTeamFilter] = React.useState('');
 
   // Fetch matches from Fastify backend
   const { data, isLoading, isError, refetch, isRefetching } = useQuery({
@@ -47,6 +48,16 @@ export function Results() {
 
   const [showCompleted, setShowCompleted] = React.useState(false);
 
+  // Filter matches based on search term
+  const filteredMatches = React.useMemo(() => {
+    if (!teamFilter.trim()) return matches;
+    const term = teamFilter.toLowerCase();
+    return matches.filter((m: any) =>
+      m.home_team.toLowerCase().includes(term) ||
+      m.away_team.toLowerCase().includes(term)
+    );
+  }, [matches, teamFilter]);
+
   // Group matches helper
   const groupMatchesByDate = (matchList: any[]) => {
     const groups: { dateStr: string; items: any[] }[] = [];
@@ -68,8 +79,8 @@ export function Results() {
     return groups;
   };
 
-  const activeMatches = matches.filter((m: any) => m.status !== 'COMPLETED');
-  const completedMatches = matches.filter((m: any) => m.status === 'COMPLETED');
+  const activeMatches = filteredMatches.filter((m: any) => m.status !== 'COMPLETED');
+  const completedMatches = filteredMatches.filter((m: any) => m.status === 'COMPLETED');
 
   const activeGroups = groupMatchesByDate(activeMatches);
   const completedGroups = groupMatchesByDate(completedMatches);
@@ -170,6 +181,20 @@ export function Results() {
         </button>
       </div>
 
+      {/* Team Filter Search Input */}
+      {!isLoading && !isError && matches.length > 0 && (
+        <div className="flex items-center bg-slate-950/60 border border-slate-800 px-4 py-2 rounded-xl focus-within:border-emerald-500/50 transition mb-6">
+          <Search size={16} className="text-slate-400 mr-2" />
+          <input
+            type="text"
+            placeholder="Filter matches by team name..."
+            value={teamFilter}
+            onChange={(e) => setTeamFilter(e.target.value)}
+            className="bg-transparent border-none text-white text-sm outline-none w-full focus:ring-0"
+          />
+        </div>
+      )}
+
       {isLoading ? (
         <div className="flex flex-col items-center justify-center py-20 space-y-4">
           <div className="w-10 h-10 border-4 border-emerald-400 border-t-transparent rounded-full animate-spin"></div>
@@ -183,6 +208,10 @@ export function Results() {
       ) : matches.length === 0 ? (
         <div className="text-center py-20 text-slate-400">
           No matches found for this tournament.
+        </div>
+      ) : filteredMatches.length === 0 ? (
+        <div className="text-center py-20 text-slate-400">
+          No matches found matching "{teamFilter}".
         </div>
       ) : (
         <div className="space-y-10">
