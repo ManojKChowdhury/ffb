@@ -24,9 +24,10 @@ fastify.setSerializerCompiler(serializerCompiler);
 
 // Register CORS
 fastify.register(cors, {
-  origin: true, // Allow all origins for dev
+  origin: true, // Allow all origins and reflect origin in Access-Control-Allow-Origin
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS']
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
 });
 
 // Register JWT

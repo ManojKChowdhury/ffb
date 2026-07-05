@@ -486,16 +486,12 @@ export async function initDb() {
         CREATE INDEX IF NOT EXISTS idx_predictions_match_id ON predictions (match_id);
       `);
 
-      // Try to sync World Cup 2026 fixtures from the API dynamically on startup
-      try {
-        console.log('Attempting to sync World Cup 2026 matches from worldcup26.ir API...');
-        const { syncWorldCupMatches } = await import('./sync');
-        await syncWorldCupMatches();
-        console.log('Successfully synced real World Cup 2026 matches from API.');
-      } catch (syncErr) {
-        console.warn('Failed to sync matches from API on startup, seeding fallback mock matches data...', syncErr);
-        
-        // Seed mock matches as fallback
+      // Check if we need to seed initial fallback matches (e.g. database is empty)
+      const matchesCountRes = await conn.query('SELECT COUNT(*) FROM matches');
+      const matchesCount = parseInt(matchesCountRes.rows[0].count);
+      
+      if (matchesCount === 0) {
+        console.log('Database matches table is empty. Seeding initial fallback matches...');
         const now = new Date();
         const addHours = (d: Date, h: number) => { const x = new Date(d); x.setHours(x.getHours() + h); return x; };
         const addMinutes = (d: Date, m: number) => { const x = new Date(d); x.setMinutes(x.getMinutes() + m); return x; };
@@ -516,6 +512,17 @@ export async function initDb() {
           `, [m.id, m.event_id, m.home_team, m.away_team, m.kickoff_time, m.home_score, m.away_score, m.status]);
         }
       }
+
+      // Try to sync World Cup 2026 fixtures from the API dynamically in the background on startup
+      console.log('Attempting to sync World Cup 2026 matches from worldcup26.ir API in the background...');
+      import('./sync')
+        .then(({ syncWorldCupMatches }) => {
+          syncWorldCupMatches()
+            .then(() => console.log('Successfully synced real World Cup 2026 matches from API in the background.'))
+            .catch(syncErr => console.warn('Failed to sync matches from API in the background:', syncErr.message || syncErr));
+        })
+        .catch(importErr => console.warn('Failed to import sync module for background sync:', importErr));
+
       console.log('Postgres database successfully initialized.');
     } finally {
       conn.release();
